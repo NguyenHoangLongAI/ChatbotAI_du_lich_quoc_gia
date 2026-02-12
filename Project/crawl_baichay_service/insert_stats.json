@@ -1,0 +1,38 @@
+{
+  "diem-den": {
+    "category": "diem-den",
+    "crawled_count": 28,
+    "inserted_count": 28,
+    "failed_count": 0
+  },
+  "luu-tru": {
+    "category": "luu-tru",
+    "crawled_count": 32,
+    "inserted_count": 32,
+    "failed_count": 0
+  },
+  "tour": {
+    "category": "tour",
+    "crawled_count": 102,
+    "inserted_count": 102,
+    "failed_count": 0
+  },
+  "nha-hang": {
+    "category": "nha-hang",
+    "crawled_count": 90,
+    "inserted_count": 70,
+    "failed_count": 20
+  },
+  "am-thuc": {
+    "category": "am-thuc",
+    "crawled_count": 41,
+    "inserted_count": 20,
+    "failed_count": 21
+  },
+  "du-thuyen": {
+    "category": "du-thuyen",
+    "crawled_count": 2,
+    "inserted_count": 2,
+    "failed_count": 0
+  }
+}
