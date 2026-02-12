@@ -217,6 +217,8 @@ class BaiChayRAGSystem:
         initial_state = {
             "messages": conversation_history or [],
             "user_query": user_query,
+            "contextualized_query": user_query,  # ADD THIS
+            "context_info": None,  # ADD THIS
             "query_type": "unknown",
             "search_results": None,
             "selected_services": [],
@@ -265,6 +267,8 @@ class BaiChayRAGSystem:
         initial_state = {
             "messages": conversation_history or [],
             "user_query": user_query,
+            "contextualized_query": user_query,  # ADD THIS
+            "context_info": None,  # ADD THIS
             "query_type": "unknown",
             "search_results": None,
             "selected_services": [],

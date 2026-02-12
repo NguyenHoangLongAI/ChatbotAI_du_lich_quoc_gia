@@ -1,6 +1,6 @@
 """
 workflow.py — Build và compile LangGraph StateGraph cho hệ thống RAG Bãi Cháy
-UPDATED: Sử dụng modular agents thay vì TourismAgents class
+UPDATED: Thêm HelloAgent và HumanAgent vào workflow
 """
 
 import logging
@@ -10,6 +10,8 @@ from Project.state.state import AgentState
 from Project.tools.tools import RAGTools
 from Project.agents import (
     RouterAgent,
+    HelloAgent,
+    HumanAgent,
     TourismAdvisorAgent,
     DocumentAdvisorAgent,
     BookingAgent,
@@ -21,11 +23,28 @@ logger = logging.getLogger(__name__)
 def _route_query(state: AgentState) -> str:
     """Hàm routing: chuyển từ router node sang agent phù hợp."""
     query_type = state.get("query_type", "tourism")
+
+    if query_type == "hello":
+        return "hello"
+    if query_type == "human":
+        return "human"
     if query_type == "document":
         return "document_advisor"
     if query_type == "booking":
         return "booking_agent"
     return "tourism_advisor"
+
+
+def _route_after_human(state: AgentState) -> str:
+    """Routing sau HumanAgent: tiếp tục collect info hoặc chuyển booking."""
+    next_action = state.get("next_action", "continue")
+
+    if next_action == "booking":
+        # Đã đủ thông tin → chuyển booking
+        return "booking_agent"
+    else:
+        # Vẫn còn thiếu info → end (để user tiếp tục cung cấp)
+        return "end"
 
 
 def build_rag_workflow(
@@ -36,6 +55,10 @@ def build_rag_workflow(
     """
     Khởi tạo tools + agents rồi compile StateGraph.
 
+    Workflow:
+        router → hello | human | tourism_advisor | document_advisor | booking_agent
+        human → booking_agent | end
+
     Returns:
         Compiled LangGraph (CompiledGraph).
     """
@@ -44,6 +67,8 @@ def build_rag_workflow(
 
     # Initialize modular agents
     router = RouterAgent(tools=tools, openai_model=openai_model)
+    hello = HelloAgent(tools=tools, openai_model=openai_model)
+    human = HumanAgent(tools=tools, openai_model=openai_model)
     tourism_advisor = TourismAdvisorAgent(tools=tools, openai_model=openai_model)
     document_advisor = DocumentAdvisorAgent(tools=tools, openai_model=openai_model)
     booking = BookingAgent(tools=tools, openai_model=openai_model)
@@ -53,6 +78,8 @@ def build_rag_workflow(
 
     # Add nodes - sử dụng method process của mỗi agent
     graph.add_node("router", router.process)
+    graph.add_node("hello", hello.process)
+    graph.add_node("human", human.process)
     graph.add_node("tourism_advisor", tourism_advisor.process)
     graph.add_node("document_advisor", document_advisor.process)
     graph.add_node("booking_agent", booking.process)
@@ -65,16 +92,29 @@ def build_rag_workflow(
         "router",
         _route_query,
         {
+            "hello": "hello",
+            "human": "human",
             "tourism_advisor": "tourism_advisor",
             "document_advisor": "document_advisor",
             "booking_agent": "booking_agent",
         },
     )
 
-    # Tất cả agent đều kết thúc workflow
+    # Conditional edges từ human agent
+    graph.add_conditional_edges(
+        "human",
+        _route_after_human,
+        {
+            "booking_agent": "booking_agent",
+            "end": END,
+        },
+    )
+
+    # Tất cả agent khác đều kết thúc workflow
+    graph.add_edge("hello", END)
     graph.add_edge("tourism_advisor", END)
     graph.add_edge("document_advisor", END)
     graph.add_edge("booking_agent", END)
 
-    logger.info("✅ LangGraph workflow compiled with modular agents")
+    logger.info("✅ LangGraph workflow compiled with HelloAgent and HumanAgent")
     return graph.compile()

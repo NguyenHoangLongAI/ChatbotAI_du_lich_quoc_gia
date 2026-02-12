@@ -1,5 +1,6 @@
 """
 document_advisor_agent.py — Agent giải đáp quy định & tài liệu
+UPDATED: Sử dụng contextualized_query từ RouterAgent
 """
 
 import logging
@@ -33,15 +34,26 @@ NGUYÊN TẮC:
         """Giải đáp quy định & tài liệu."""
         logger.info("📚 Document Advisor Agent working...")
 
+        # Sử dụng contextualized_query nếu có
+        search_query = state.get("contextualized_query", state["user_query"])
+
+        # Log context info
+        context_info = state.get("context_info", {})
+        if context_info.get("is_followup"):
+            logger.info(f"🔍 Using contextualized query: {search_query}")
+            logger.info(f"   Context: {context_info.get('context_summary')}")
+
+        # Search với contextualized query
         search_results = self.tools.search_documents.invoke(
-            {"query": state["user_query"], "top_k": 3}
+            {"query": search_query, "top_k": 3}
         )
 
         response = self.llm.invoke([
             SystemMessage(content=self.system_prompt),
             HumanMessage(
                 content=(
-                    f"Câu hỏi: {state['user_query']}\n\n"
+                    f"Câu hỏi gốc: {state['user_query']}\n"
+                    f"Câu hỏi đã làm rõ: {search_query}\n\n"
                     f"Tài liệu tìm được:\n{search_results}\n\n"
                     "Hãy trả lời câu hỏi."
                 )
