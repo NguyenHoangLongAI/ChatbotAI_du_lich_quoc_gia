@@ -1,6 +1,6 @@
 """
 workflow.py — Build và compile LangGraph StateGraph cho hệ thống RAG Bãi Cháy
-UPDATED: Thêm HelloAgent và HumanAgent vào workflow
+UPDATED: Thêm TourismDetailAgent vào workflow
 """
 
 import logging
@@ -16,6 +16,7 @@ from Project.agents import (
     DocumentAdvisorAgent,
     BookingAgent,
 )
+from Project.agents.tourism_detail_agent import TourismDetailAgent  # NEW
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,8 @@ def _route_query(state: AgentState) -> str:
         return "hello"
     if query_type == "human":
         return "human"
+    if query_type == "tourism_detail":  # ⭐ NEW
+        return "tourism_detail"
     if query_type == "document":
         return "document_advisor"
     if query_type == "booking":
@@ -56,7 +59,14 @@ def build_rag_workflow(
     Khởi tạo tools + agents rồi compile StateGraph.
 
     Workflow:
-        router → hello | human | tourism_advisor | document_advisor | booking_agent
+        router → {
+            hello,
+            human,
+            tourism_advisor,      # Tìm kiếm chung
+            tourism_detail,       # ⭐ NEW - Chi tiết dịch vụ theo ID
+            document_advisor,
+            booking_agent
+        }
         human → booking_agent | end
 
     Returns:
@@ -70,6 +80,7 @@ def build_rag_workflow(
     hello = HelloAgent(tools=tools, openai_model=openai_model)
     human = HumanAgent(tools=tools, openai_model=openai_model)
     tourism_advisor = TourismAdvisorAgent(tools=tools, openai_model=openai_model)
+    tourism_detail = TourismDetailAgent(tools=tools, openai_model=openai_model)  # ⭐ NEW
     document_advisor = DocumentAdvisorAgent(tools=tools, openai_model=openai_model)
     booking = BookingAgent(tools=tools, openai_model=openai_model)
 
@@ -81,6 +92,7 @@ def build_rag_workflow(
     graph.add_node("hello", hello.process)
     graph.add_node("human", human.process)
     graph.add_node("tourism_advisor", tourism_advisor.process)
+    graph.add_node("tourism_detail", tourism_detail.process)  # ⭐ NEW
     graph.add_node("document_advisor", document_advisor.process)
     graph.add_node("booking_agent", booking.process)
 
@@ -95,6 +107,7 @@ def build_rag_workflow(
             "hello": "hello",
             "human": "human",
             "tourism_advisor": "tourism_advisor",
+            "tourism_detail": "tourism_detail",  # ⭐ NEW
             "document_advisor": "document_advisor",
             "booking_agent": "booking_agent",
         },
@@ -113,8 +126,9 @@ def build_rag_workflow(
     # Tất cả agent khác đều kết thúc workflow
     graph.add_edge("hello", END)
     graph.add_edge("tourism_advisor", END)
+    graph.add_edge("tourism_detail", END)  # ⭐ NEW
     graph.add_edge("document_advisor", END)
     graph.add_edge("booking_agent", END)
 
-    logger.info("✅ LangGraph workflow compiled with HelloAgent and HumanAgent")
+    logger.info("✅ LangGraph workflow compiled with TourismDetailAgent")
     return graph.compile()

@@ -1,6 +1,6 @@
 """
 router_agent.py — Agent phân loại query với context processing
-UPDATED: Context-aware query rewriting cho follow-up questions
+ENHANCED: Nhận diện service ID và booking intent
 """
 
 import logging
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class RouterAgent(BaseAgent):
-    """Agent phân loại câu hỏi du lịch Bãi Cháy với context processing."""
+    """Agent phân loại câu hỏi du lịch Bãi Cháy với context processing và service ID detection."""
 
     @property
     def context_processing_prompt(self) -> str:
@@ -25,11 +25,15 @@ NHIỆM VỤ:
 Phân tích câu hỏi hiện tại và lịch sử hội thoại để:
 1. Xác định xem có phải câu hỏi follow-up không
 2. Làm rõ câu hỏi với đầy đủ ngữ cảnh
+3. **Trích xuất service ID nếu có**
+4. **Nhận diện intent đặt hàng**
 
 YÊU CẦU QUAN TRỌNG:
 - Phân tích xem câu hỏi có phải follow-up (tiếp theo cuộc trò chuyện trước) không
 - Truy vết lịch sử để xác định chính xác đối tượng được nhắc tới
-- Đặc biệt chú ý các cụm từ:
+- **ĐẶC BIỆT CHÚ Ý**:
+  * Nếu có số ID dịch vụ (VD: "id: 123", "dịch vụ 456", "số 789") → trích xuất
+  * Nếu có intent đặt hàng ("đặt luôn", "booking", "book ngay", "tôi muốn đặt", "chốt") → đánh dấu
   * Đại từ: "nó", "ý trên", "cái đó", "phần này", "thành phần thứ X"
   * Xác nhận: "OK", "có", "được", "đồng ý"
   * Yêu cầu tiếp: "chi tiết", "hãy hướng dẫn", "tiếp tục", "nói thêm"
@@ -56,72 +60,84 @@ OUTPUT FORMAT (JSON):
   "detected_references": {{
     "pronouns": ["nó", "cái đó"...],
     "numbers": ["thứ 1", "số 2"...],
-    "actions": ["chi tiết", "đặt luôn"...]
+    "actions": ["chi tiết", "đặt luôn"...],
+    "service_id": null hoặc số ID (int)
   }},
   "resolved_entities": {{
     "hotel_name": "Tên khách sạn nếu có",
     "tour_name": "Tên tour nếu có",
-    "service_id": "ID dịch vụ nếu xác định được"
+    "service_id": null hoặc số ID (int)
+  }},
+  "booking_intent": {{
+    "has_intent": true/false,
+    "confidence": 0.0-1.0,
+    "keywords": ["đặt", "booking"...]
   }}
 }}
 
 VÍ DỤ:
 
-Example 1 - Follow-up với đại từ:
+Example 1 - Hỏi chi tiết về service ID:
 Input:
-  Question: "Nó giá bao nhiêu?"
-  History: "Assistant: Đây là khách sạn Mường Thanh 4 sao..."
-Output:
-{{
-  "is_followup": true,
-  "contextualized_question": "Khách sạn Mường Thanh 4 sao giá bao nhiêu?",
-  "context_summary": "Hỏi giá khách sạn Mường Thanh được nhắc ở tin nhắn trước",
-  "detected_references": {{"pronouns": ["nó"]}},
-  "resolved_entities": {{"hotel_name": "Mường Thanh"}}
-}}
-
-Example 2 - Follow-up với số thứ tự:
-Input:
-  Question: "Cái thứ 2 đi"
-  History: "Assistant: Có 3 tour: 1. Tour Hạ Long 1 ngày, 2. Tour Hạ Long 2 ngày 1 đêm, 3. Tour..."
-Output:
-{{
-  "is_followup": true,
-  "contextualized_question": "Cho tôi thông tin chi tiết về Tour Hạ Long 2 ngày 1 đêm",
-  "context_summary": "Chọn tour thứ 2 trong danh sách được đề xuất",
-  "detected_references": {{"numbers": ["thứ 2"]}},
-  "resolved_entities": {{"tour_name": "Tour Hạ Long 2 ngày 1 đêm"}}
-}}
-
-Example 3 - Follow-up với xác nhận:
-Input:
-  Question: "OK, đặt luôn"
-  History: "User: Tôi muốn khách sạn gần biển. Assistant: Khách sạn Novotel..."
-Output:
-{{
-  "is_followup": true,
-  "contextualized_question": "Đặt phòng khách sạn Novotel gần biển",
-  "context_summary": "Xác nhận đặt khách sạn Novotel được giới thiệu",
-  "detected_references": {{"actions": ["đặt luôn"]}},
-  "resolved_entities": {{"hotel_name": "Novotel"}}
-}}
-
-Example 4 - Câu hỏi độc lập:
-Input:
-  Question: "Tìm khách sạn 4 sao gần biển"
+  Question: "Cho tôi biết thêm về dịch vụ id 20123"
   History: ""
 Output:
 {{
   "is_followup": false,
-  "contextualized_question": "Tìm khách sạn 4 sao gần biển",
-  "context_summary": "Câu hỏi độc lập",
-  "detected_references": {{}},
-  "resolved_entities": {{}}
+  "contextualized_question": "Cho tôi biết thông tin chi tiết về dịch vụ có ID 20123",
+  "context_summary": "Yêu cầu thông tin chi tiết dịch vụ",
+  "detected_references": {{"service_id": 20123}},
+  "resolved_entities": {{"service_id": 20123}},
+  "booking_intent": {{"has_intent": false, "confidence": 0.0, "keywords": []}}
+}}
+
+Example 2 - Booking intent với ID:
+Input:
+  Question: "Tôi muốn đặt dịch vụ 30045"
+  History: ""
+Output:
+{{
+  "is_followup": false,
+  "contextualized_question": "Tôi muốn đặt dịch vụ có ID 30045",
+  "context_summary": "Yêu cầu đặt dịch vụ cụ thể",
+  "detected_references": {{"service_id": 30045, "actions": ["đặt"]}},
+  "resolved_entities": {{"service_id": 30045}},
+  "booking_intent": {{"has_intent": true, "confidence": 0.95, "keywords": ["đặt"]}}
+}}
+
+Example 3 - Follow-up với đại từ + booking:
+Input:
+  Question: "Đặt luôn cái đó"
+  History: "Assistant: Đây là tour Hạ Long 2 ngày 1 đêm (ID: 20045)..."
+Output:
+{{
+  "is_followup": true,
+  "contextualized_question": "Đặt tour Hạ Long 2 ngày 1 đêm (ID: 20045)",
+  "context_summary": "Xác nhận đặt tour được giới thiệu trước đó",
+  "detected_references": {{"pronouns": ["cái đó"], "actions": ["đặt luôn"], "service_id": 20045}},
+  "resolved_entities": {{"tour_name": "Tour Hạ Long 2 ngày 1 đêm", "service_id": 20045}},
+  "booking_intent": {{"has_intent": true, "confidence": 1.0, "keywords": ["đặt luôn"]}}
+}}
+
+Example 4 - Hỏi giá về service đã nhắc:
+Input:
+  Question: "Giá của nó bao nhiêu?"
+  History: "Assistant: Tour Vịnh Hạ Long 1 ngày (ID: 20012) là..."
+Output:
+{{
+  "is_followup": true,
+  "contextualized_question": "Giá của Tour Vịnh Hạ Long 1 ngày (ID: 20012) bao nhiêu?",
+  "context_summary": "Hỏi giá tour được nhắc ở tin nhắn trước",
+  "detected_references": {{"pronouns": ["nó"], "service_id": 20012}},
+  "resolved_entities": {{"tour_name": "Tour Vịnh Hạ Long 1 ngày", "service_id": 20012}},
+  "booking_intent": {{"has_intent": false, "confidence": 0.0, "keywords": []}}
 }}
 
 NGUYÊN TẮC:
 - LUÔN LUÔN trả về JSON hợp lệ
 - contextualized_question PHẢI rõ ràng, có thể search được
+- **service_id** luôn là số nguyên hoặc null
+- **booking_intent.has_intent** = true nếu có từ khóa đặt hàng
 - Nếu không chắc chắn → is_followup = false
 - Ưu tiên thông tin gần nhất trong lịch sử"""
 
@@ -130,22 +146,33 @@ NGUYÊN TẮC:
         """System prompt cho classification."""
         return """Bạn là trợ lý phân loại câu hỏi du lịch Bãi Cháy.
 
-Phân loại câu hỏi thành 1 trong 5 loại:
+Phân loại câu hỏi thành 1 trong 6 loại:
 - "hello": Lời chào, chào hỏi, giới thiệu ban đầu
 - "human": Khách cung cấp thông tin cá nhân (tên, SĐT, ngày check-in/out)
 - "tourism": Tìm tour, điểm đến, khách sạn, nhà hàng, giá cả
+- "tourism_detail": Hỏi chi tiết về dịch vụ CỤ THỂ (có service_id hoặc tên rõ ràng)
 - "document": Hỏi về quy định, khiếu nại, thủ tục, chính sách
-- "booking": Khách muốn đặt dịch vụ (sau khi đã có đủ thông tin)
+- "booking": Khách muốn đặt dịch vụ (có booking intent HOẶC đã đủ thông tin)
+
+**QUAN TRỌNG - Phân biệt tourism vs tourism_detail:**
+- "tourism": Tìm kiếm CHUNG ("tìm khách sạn gần biển", "tour Hạ Long")
+- "tourism_detail": Hỏi về dịch vụ CỤ THỂ ("thông tin về id 20123", "giá của tour Mường Thanh")
+
+**QUAN TRỌNG - Nhận diện booking:**
+- Có từ khóa: "đặt", "book", "booking", "chốt", "đặt luôn", "tôi muốn đặt"
+- Hoặc đã có đủ thông tin: tên + SĐT + ngày + service_id
 
 Ví dụ:
 - "Xin chào" → hello
 - "Tên tôi là Nguyễn Văn A" → human
 - "Tìm khách sạn 4 sao gần biển" → tourism
-- "Khách sạn Mường Thanh giá bao nhiêu?" → tourism
+- "Cho tôi biết về dịch vụ id 20123" → tourism_detail
+- "Giá của khách sạn Mường Thanh bao nhiêu?" → tourism_detail
 - "Quy định hủy tour như thế nào?" → document
 - "Đặt luôn tour này" → booking
+- "Tôi muốn đặt dịch vụ 30045" → booking
 
-CHỈ TRẢ VỀ 1 TỪ: hello, human, tourism, document, hoặc booking
+CHỈ TRẢ VỀ 1 TỪ: hello, human, tourism, tourism_detail, document, hoặc booking
 KHÔNG GIẢI THÍCH, CHỈ TRẢ VỀ TỪ KHÓA."""
 
     @property
@@ -157,8 +184,9 @@ KHÔNG GIẢI THÍCH, CHỈ TRẢ VỀ TỪ KHÓA."""
         """
         Phân loại query với context processing:
         1. Phân tích context và làm rõ câu hỏi
-        2. Phân loại query type
-        3. Update state với contextualized question
+        2. Extract service_id và booking_intent
+        3. Phân loại query type
+        4. Update state
         """
         logger.info("🔀 Router Agent analyzing query...")
 
@@ -170,6 +198,15 @@ KHÔNG GIẢI THÍCH, CHỈ TRẢ VỀ TỪ KHÓA."""
             original_query = state["user_query"]
             contextualized_query = context_result.get("contextualized_question", original_query)
 
+            # Extract service_id
+            service_id = context_result.get("resolved_entities", {}).get("service_id")
+            if not service_id:
+                service_id = context_result.get("detected_references", {}).get("service_id")
+
+            # Extract booking intent
+            booking_intent = context_result.get("booking_intent", {})
+            has_booking_intent = booking_intent.get("has_intent", False)
+
             # Log context analysis
             if context_result.get("is_followup"):
                 logger.info(f"📝 Follow-up detected!")
@@ -177,9 +214,16 @@ KHÔNG GIẢI THÍCH, CHỈ TRẢ VỀ TỪ KHÓA."""
                 logger.info(f"   Contextualized: {contextualized_query}")
                 logger.info(f"   Summary: {context_result.get('context_summary')}")
 
+            if service_id:
+                logger.info(f"🎯 Service ID detected: {service_id}")
+
+            if has_booking_intent:
+                logger.info(f"🎫 Booking intent detected (confidence: {booking_intent.get('confidence', 0):.2f})")
+
             # Store context info in state
             state["contextualized_query"] = contextualized_query
             state["context_info"] = context_result
+            state["service_id"] = service_id  # ⭐ NEW
 
             # Use contextualized query for classification
             query_for_classification = contextualized_query
@@ -189,8 +233,10 @@ KHÔNG GIẢI THÍCH, CHỈ TRẢ VỀ TỪ KHÓA."""
             state["contextualized_query"] = state["user_query"]
             state["context_info"] = {
                 "is_followup": False,
-                "context_summary": "Câu hỏi độc lập"
+                "context_summary": "Câu hỏi độc lập",
+                "booking_intent": {"has_intent": False, "confidence": 0.0}
             }
+            state["service_id"] = None  # ⭐ NEW
 
         # Step 2: Build customer info context
         customer_info = state.get("customer_info", {})
@@ -216,6 +262,8 @@ Thông tin khách hàng hiện có:
             HumanMessage(
                 content=(
                     f"Phân loại câu hỏi sau:\n{query_for_classification}\n\n"
+                    f"Service ID: {state.get('service_id', 'Không có')}\n"
+                    f"Booking intent: {state.get('context_info', {}).get('booking_intent', {}).get('has_intent', False)}\n\n"
                     f"{context_info_text}"
                 )
             ),
@@ -227,12 +275,19 @@ Thông tin khách hàng hiện có:
             query_type = "hello"
         elif "human" in raw:
             query_type = "human"
+        elif "tourism_detail" in raw:
+            query_type = "tourism_detail"  # ⭐ NEW
         elif "document" in raw:
             query_type = "document"
         elif "booking" in raw:
             query_type = "booking"
         else:
             query_type = "tourism"
+
+        # Override với booking nếu có booking intent mạnh
+        if state.get("context_info", {}).get("booking_intent", {}).get("confidence", 0) >= 0.8:
+            logger.info("🎫 Strong booking intent → overriding to booking")
+            query_type = "booking"
 
         logger.info(f"✅ Query type: {query_type}")
         state["query_type"] = query_type
@@ -247,7 +302,7 @@ Thông tin khách hàng hiện có:
         Xử lý context và làm rõ câu hỏi follow-up.
 
         Returns:
-            Dict với is_followup, contextualized_question, context_summary
+            Dict với is_followup, contextualized_question, context_summary, service_id, booking_intent
         """
         try:
             # Build conversation history
@@ -258,7 +313,10 @@ Thông tin khách hàng hiện có:
                 return {
                     "is_followup": False,
                     "contextualized_question": state["user_query"],
-                    "context_summary": "Câu hỏi độc lập"
+                    "context_summary": "Câu hỏi độc lập",
+                    "detected_references": {},
+                    "resolved_entities": {},
+                    "booking_intent": {"has_intent": False, "confidence": 0.0}
                 }
 
             # Invoke LLM for context analysis
@@ -285,7 +343,10 @@ Thông tin khách hàng hiện có:
                 return {
                     "is_followup": False,
                     "contextualized_question": state["user_query"],
-                    "context_summary": "Không thể phân tích context"
+                    "context_summary": "Không thể phân tích context",
+                    "detected_references": {},
+                    "resolved_entities": {},
+                    "booking_intent": {"has_intent": False, "confidence": 0.0}
                 }
 
         except Exception as e:
@@ -293,7 +354,10 @@ Thông tin khách hàng hiện có:
             return {
                 "is_followup": False,
                 "contextualized_question": state["user_query"],
-                "context_summary": f"Lỗi xử lý context: {e}"
+                "context_summary": f"Lỗi xử lý context: {e}",
+                "detected_references": {},
+                "resolved_entities": {},
+                "booking_intent": {"has_intent": False, "confidence": 0.0}
             }
 
     def _build_history_text(self, state: AgentState, max_turns: int = 3) -> str:

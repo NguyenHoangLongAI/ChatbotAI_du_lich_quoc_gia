@@ -1,6 +1,6 @@
 """
 state.py — Định nghĩa AgentState cho hệ thống multi-agent RAG Bãi Cháy
-UPDATED: Thêm stream_messages, stream_system_prompt cho streaming và customer_info cho HumanAgent
+UPDATED: Thêm service_id field
 """
 
 from typing import TypedDict, Annotated, List, Dict, Optional
@@ -15,7 +15,8 @@ class AgentState(TypedDict):
     user_query: str                                        # Query gốc từ user
     contextualized_query: str                              # Query đã được làm rõ với context (by RouterAgent)
     context_info: Optional[Dict]                           # Thông tin context analysis
-    query_type: str                                        # tourism | document | booking | hello | unknown
+    query_type: str                                        # tourism | tourism_detail | document | booking | hello | human | unknown
+    service_id: Optional[int]                              # ID dịch vụ được trích xuất (NEW)
     search_results: Optional[Dict]                         # Kết quả tìm kiếm từ vector DB
     selected_services: List[Dict]                          # Dịch vụ khách hàng đã chọn
     booking_info: Optional[Dict]                           # Thông tin đặt hàng
