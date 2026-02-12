@@ -1,5 +1,6 @@
 """
 state.py — Định nghĩa AgentState cho hệ thống multi-agent RAG Bãi Cháy
+UPDATED: Thêm stream_messages và stream_system_prompt cho streaming support
 """
 
 from typing import TypedDict, Annotated, List, Dict, Optional
@@ -19,3 +20,5 @@ class AgentState(TypedDict):
     customer_info: Optional[Dict]                          # Thông tin khách hàng
     next_action: str                                       # Action tiếp theo
     final_response: str                                    # Response cuối cùng
+    stream_messages: Optional[List[BaseMessage]]           # Messages cho streaming LLM
+    stream_system_prompt: Optional[str]                    # System prompt cho streaming
