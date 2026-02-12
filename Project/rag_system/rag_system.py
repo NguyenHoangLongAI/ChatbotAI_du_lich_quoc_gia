@@ -1,19 +1,6 @@
 """
 rag_system.py — Giao diện chính của hệ thống RAG Bãi Cháy với streaming support.
-UPDATED: Thêm astream_query cho real-time streaming
-FIXED: Không phụ thuộc vào rag_multi_agent_system
-
-Sử dụng:
-    from rag_system.rag_system import BaiChayRAGSystem
-
-    # Non-streaming
-    rag = BaiChayRAGSystem()
-    result = rag.process_query("Tìm khách sạn 4 sao gần biển")
-    print(result["response"])
-
-    # Streaming
-    async for json_str in rag.astream_query("Tìm khách sạn 4 sao gần biển"):
-        print(json_str)  # JSON string cho mỗi chunk
+UPDATED: Sử dụng modular agents
 """
 
 import logging
@@ -25,9 +12,10 @@ from typing import Dict, List, Optional, AsyncGenerator
 from Project.workflow.workflow import build_rag_workflow
 from Project.state.state import AgentState
 from Project.tools.tools import RAGTools
-from Project.agents.agents import TourismAgents
+from Project.agents.base_agent import BaseAgent
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
+from langchain_core.messages import SystemMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +57,7 @@ class BaiChayRAGSystem:
         logger.info("✅ RAG System ready! (non-stream + stream)")
 
     def _build_streaming_workflow(self):
-        """
-        Build streaming workflow - không invoke LLM trong agent nodes
-        """
+        """Build streaming workflow với modular agents"""
         if self._streaming_workflow is None:
             logger.info("🔄 Building streaming workflow...")
 
@@ -81,20 +67,21 @@ class BaiChayRAGSystem:
                 milvus_port=self.milvus_port
             )
 
-            # Create streaming agents (không invoke LLM)
-            class StreamingAgents(TourismAgents):
-                """
-                Agents cho streaming - chỉ search, không invoke LLM
-                """
+            # Import streaming versions
+            from Project.agents import (
+                RouterAgent,
+                TourismAdvisorAgent,
+                DocumentAdvisorAgent,
+                BookingAgent
+            )
 
-                def tourism_advisor_agent(self, state: AgentState) -> AgentState:
-                    """Tourism advisor: chỉ search, KHÔNG invoke LLM"""
+            # Create custom streaming agents
+            class StreamingTourismAdvisor(TourismAdvisorAgent):
+                """Tourism advisor cho streaming - không invoke LLM"""
+                def process(self, state: AgentState) -> AgentState:
                     logger.info("🏖️ [STREAM] Tourism Advisor: searching only...")
-                    user_query = state["user_query"]
-
-                    # Search only
                     search_results = self.tools.search_tourism_services(
-                        query=user_query, top_k=5
+                        query=state["user_query"], top_k=5
                     )
 
                     try:
@@ -102,56 +89,23 @@ class BaiChayRAGSystem:
                     except:
                         state["search_results"] = {}
 
-                    # Prepare messages for streaming (không invoke)
-                    from langchain_core.messages import SystemMessage, HumanMessage
-
-                    system_prompt = """Bạn là chuyên gia tư vấn du lịch Bãi Cháy - Quảng Ninh.
-
-NHIỆM VỤ:
-Dựa vào kết quả tìm kiếm, tư vấn cho khách hàng về các dịch vụ du lịch.
-
-FORMAT TRẢ LỜI BẮT BUỘC:
-Với mỗi dịch vụ, trình bày theo cấu trúc sau:
-
----
-### 🏨 [Tên dịch vụ] {rating > 0 ? '⭐ [rating]/5' : ''}
-
-**📍 Địa chỉ:** [address hoặc location]
-**💰 Giá:** [price_range]
-**📝 Mô tả:** [Tóm tắt description, khoảng 4-5 câu]
-**🖼️ Hình ảnh:** {image_url có giá trị ? hiển thị URL : "Chưa có hình ảnh"}
-**🔗 Xem chi tiết:** {url có giá trị ? hiển thị URL : "Liên hệ để biết thêm"}
-**🆔 ID để đặt:** [id]
----
-
-NGUYÊN TẮC QUAN TRỌNG:
-1. ✅ LUÔN LUÔN hiển thị image_url nếu có
-2. ✅ LUÔN LUÔN hiển thị url bài viết nếu có
-3. ✅ Sắp xếp theo similarity_score (cao nhất trước)
-4. ✅ Kết thúc bằng câu hỏi booking
-
-PHONG CÁCH: Thân thiện, nhiệt tình, chuyên nghiệp."""
-
                     llm_messages = [
-                        SystemMessage(content=system_prompt),
-                        HumanMessage(content=f"Câu hỏi: {user_query}\n\nKết quả tìm kiếm:\n{search_results}\n\nHãy tư vấn cho khách hàng.")
+                        SystemMessage(content=self.system_prompt),
+                        HumanMessage(content=f"Câu hỏi: {state['user_query']}\n\nKết quả tìm kiếm:\n{search_results}\n\nHãy tư vấn cho khách hàng.")
                     ]
 
                     state["stream_messages"] = llm_messages
-                    state["stream_system_prompt"] = system_prompt
+                    state["stream_system_prompt"] = self.system_prompt
                     state["final_response"] = ""
                     state["next_action"] = "stream"
-
-                    logger.info(f"✅ [STREAM] Search done, ready for streaming")
                     return state
 
-                def document_advisor_agent(self, state: AgentState) -> AgentState:
-                    """Document advisor: chỉ search, KHÔNG invoke LLM"""
+            class StreamingDocumentAdvisor(DocumentAdvisorAgent):
+                """Document advisor cho streaming - không invoke LLM"""
+                def process(self, state: AgentState) -> AgentState:
                     logger.info("📚 [STREAM] Document Advisor: searching only...")
-                    user_query = state["user_query"]
-
                     search_results = self.tools.search_documents.invoke({
-                        "query": user_query, "top_k": 3
+                        "query": state["user_query"], "top_k": 3
                     })
 
                     try:
@@ -159,79 +113,49 @@ PHONG CÁCH: Thân thiện, nhiệt tình, chuyên nghiệp."""
                     except:
                         state["search_results"] = {}
 
-                    from langchain_core.messages import SystemMessage, HumanMessage
-
-                    system_prompt = """Bạn là chuyên gia tư vấn quy định du lịch Bãi Cháy.
-
-NHIỆM VỤ:
-1. Đọc kỹ nội dung tài liệu tìm được
-2. Trả lời chính xác dựa trên tài liệu
-3. Trích dẫn nguồn (document_id) nếu có
-
-NGUYÊN TẮC:
-- Chỉ trả lời dựa trên tài liệu tìm được
-- Nếu không tìm thấy: "Tôi chưa tìm thấy thông tin này trong tài liệu"
-- Trình bày rõ ràng, dễ hiểu
-- Gợi ý liên hệ hotline nếu cần"""
-
                     llm_messages = [
-                        SystemMessage(content=system_prompt),
-                        HumanMessage(content=f"Câu hỏi: {user_query}\n\nTài liệu tìm được:\n{search_results}\n\nHãy trả lời câu hỏi.")
+                        SystemMessage(content=self.system_prompt),
+                        HumanMessage(content=f"Câu hỏi: {state['user_query']}\n\nTài liệu tìm được:\n{search_results}\n\nHãy trả lời câu hỏi.")
                     ]
 
                     state["stream_messages"] = llm_messages
-                    state["stream_system_prompt"] = system_prompt
+                    state["stream_system_prompt"] = self.system_prompt
                     state["final_response"] = ""
                     state["next_action"] = "stream"
-
                     return state
 
-                def booking_agent(self, state: AgentState) -> AgentState:
-                    """Booking agent: chuẩn bị context, KHÔNG invoke LLM"""
+            class StreamingBookingAgent(BookingAgent):
+                """Booking agent cho streaming - không invoke LLM"""
+                def process(self, state: AgentState) -> AgentState:
                     logger.info("🎫 [STREAM] Booking Agent working...")
-                    user_query = state["user_query"]
-                    messages_history = state["messages"]
-
                     conversation_text = "\n".join([
                         f"{msg.__class__.__name__}: {msg.content}"
-                        for msg in messages_history[-3:] if hasattr(msg, 'content')
+                        for msg in state["messages"][-3:] if hasattr(msg, 'content')
                     ])
 
-                    from langchain_core.messages import SystemMessage, HumanMessage
-
-                    system_prompt = """Bạn là chuyên viên đặt tour du lịch Bãi Cháy.
-
-NHIỆM VỤ:
-1. Thu thập đầy đủ thông tin:
-   - Họ tên khách hàng
-   - Số điện thoại
-   - ID dịch vụ đã chọn
-   - Ngày check-in (YYYY-MM-DD)
-   - Ngày check-out (YYYY-MM-DD)
-
-2. Nếu ĐỦ thông tin: Trả về JSON
-3. Nếu THIẾU: Hỏi thêm thông tin"""
-
                     llm_messages = [
-                        SystemMessage(content=system_prompt),
-                        HumanMessage(content=f"Lịch sử hội thoại:\n{conversation_text}\n\nTin nhắn mới: {user_query}\n\nPhân tích và xử lý.")
+                        SystemMessage(content=self.system_prompt),
+                        HumanMessage(content=f"Lịch sử hội thoại:\n{conversation_text}\n\nTin nhắn mới: {state['user_query']}\n\nPhân tích và xử lý.")
                     ]
 
                     state["stream_messages"] = llm_messages
-                    state["stream_system_prompt"] = system_prompt
+                    state["stream_system_prompt"] = self.system_prompt
                     state["final_response"] = ""
                     state["next_action"] = "stream"
-
                     return state
 
-            # Build workflow
-            agents = StreamingAgents(self._tools, openai_model=self.openai_model)
+            # Initialize streaming agents
+            router = RouterAgent(tools=self._tools, openai_model=self.openai_model)
+            tourism_advisor = StreamingTourismAdvisor(tools=self._tools, openai_model=self.openai_model)
+            document_advisor = StreamingDocumentAdvisor(tools=self._tools, openai_model=self.openai_model)
+            booking = StreamingBookingAgent(tools=self._tools, openai_model=self.openai_model)
 
+            # Build workflow
             workflow = StateGraph(AgentState)
-            workflow.add_node("router", agents.router_agent)
-            workflow.add_node("tourism_advisor", agents.tourism_advisor_agent)
-            workflow.add_node("document_advisor", agents.document_advisor_agent)
-            workflow.add_node("booking_agent", agents.booking_agent)
+            workflow.add_node("router", router.process)
+            workflow.add_node("tourism_advisor", tourism_advisor.process)
+            workflow.add_node("document_advisor", document_advisor.process)
+            workflow.add_node("booking_agent", booking.process)
 
             workflow.set_entry_point("router")
 
@@ -269,7 +193,7 @@ NHIỆM VỤ:
                 api_key=api_key
             )
 
-            logger.info("✅ Streaming workflow ready")
+            logger.info("✅ Streaming workflow ready with modular agents")
 
     # ------------------------------------------------------------------
     # Public API
@@ -334,10 +258,6 @@ NHIỆM VỤ:
             {"type": "chunk",  "content": "text...", "references": null, "status": null}
             {"type": "end",    "content": null, "references": null, "status": "done"}
             {"type": "error",  "content": "msg", "references": null, "status": "error"}
-
-        Usage:
-            async for json_str in rag_system.astream_query("..."):
-                yield f"data: {json_str}\\n\\n"
         """
         # Lazy build streaming workflow
         self._build_streaming_workflow()
@@ -364,7 +284,7 @@ NHIỆM VỤ:
             "status": "processing"
         })
 
-        # Bước 2: Chạy workflow trong thread pool (LangGraph invoke là sync)
+        # Bước 2: Chạy workflow trong thread pool
         loop = asyncio.get_event_loop()
         final_state = await loop.run_in_executor(
             None,
