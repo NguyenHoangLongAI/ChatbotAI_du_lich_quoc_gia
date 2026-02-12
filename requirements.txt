@@ -1,0 +1,70 @@
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Vector Database - Use newer version with pre-built wheels
+pymilvus==2.3.4
+
+# Document Processing
+PyPDF2>=3.0.0
+python-docx>=1.1.0
+pandas>=2.1.0
+openpyxl>=3.1.2
+xlrd>=2.0.0
+
+# Image Processing & OCR
+Pillow>=10.0.0
+pytesseract>=0.3.10
+pdf2image>=1.17.0
+
+# Advanced Document Processing (will be installed separately)
+# docling>=1.16.0
+
+# Embeddings & ML
+sentence-transformers>=2.3.1
+torch>=2.2.0
+torchvision>=0.17.0
+transformers>=4.36.2
+
+# Web Scraping
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# Object Storage
+minio>=7.2.0
+
+# Utilities
+python-dotenv>=1.0.0
+aiofiles>=23.2.0
+colorlog>=6.8.0
+onnxruntime
+
+
+# LangChain & LangGraph
+langgraph>=0.0.30
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.0.20  # For Ollama integration
+langchain-openai>=0.0.5  # For OpenAI integration - ADDED FOR GPT-4o
+
+# HTTP client for Ollama streaming
+httpx>=0.25.0
+
+# OpenAI SDK - ADDED FOR GPT-4o
+openai>=1.12.0
+
+# Pydantic for data validation
+pydantic>=2.5.0
+typing-extensions>=4.9.0
+
+# API rate limiting (optional)
+slowapi>=0.1.9
+
+# Async support
+aiofiles>=23.2.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
